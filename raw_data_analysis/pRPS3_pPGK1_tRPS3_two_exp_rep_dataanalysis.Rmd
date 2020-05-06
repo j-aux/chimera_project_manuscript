@@ -1,0 +1,417 @@
+---
+title: "RT-qPCR of pRPS3-mCh-tRPS3mod (2 reps) and pPGK1-mCh-tRPS3mod (2 reps)"
+author: "Jamie Auxillos"
+date: "06/05/2020"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+---
+
+```{r setup,warning=FALSE,message=FALSE,echo=FALSE}
+
+## knitr options for report generation
+knitr::opts_chunk$set(warning=FALSE,message=FALSE,echo=TRUE,cache=FALSE,
+                      results="show",
+                      fig.path="figures_pRPS3_pPGK1_tRPS3mod/pRPS3_pPGK1_tRPS3mod_")
+
+library(tidyverse)
+library(cowplot)
+library(tidyqpcr)
+
+ # set default theme for graphics
+theme_set(theme_cowplot(font_size=11) %+replace% 
+              theme(panel.border=element_rect(colour = "grey50",
+                                            linetype = "solid",size=0.5),
+                    strip.background = element_blank()))
+```
+
+## Plate plan
+```{r label_plates,dependson="plate_functions"}
+
+# list Targets /Probes
+TargetID <- c("mCh-7", "URA3-ORF", "RPS3-ORF", "PGK1-ORF")
+TargetIDvalues <-factor(rep(TargetID,levels=TargetID))
+
+StrainlevelsR3 <- c("pRPS3-tRPS3_WT","pRPS3-tRPS3_mod0","pRPS3-tRPS3_modA","pRPS3-tRPS3_modB","pRPS3-tRPS3_modC", "pRPS3-tRPS3_modD", "pRPS3-tRPS3_modE","POT1-ccdB")
+StrainvaluesR3 <- factor(rep(StrainlevelsR3,each=3),levels=StrainlevelsR3)
+StrainlevelsP1 <- c("pPGK1-tRPS3_WT","pPGK1-tRPS3_mod0","pPGK1-tRPS3_modA","pPGK1-tRPS3_modB","pPGK1-tRPS3_modC", "pPGK1-tRPS3_modD", "pPGK1-tRPS3_modE","POT1-ccdB")
+StrainvaluesP1 <- factor(rep(StrainlevelsP1,each=3),levels=StrainlevelsP1)
+
+BioReplevels_A <- c("BioRep1","BioRep2","BioRep3")
+BioRepvalues_A <- factor(rep(BioReplevels_A,times=8),levels=BioReplevels_A)
+BioReplevels_B <- c("BioRep4","BioRep5","BioRep6")
+BioRepvalues_B <- factor(rep(BioReplevels_B,times=8),levels=BioReplevels_B)
+
+colkeyR3_1 <- tibble(WellC=1:24,
+                 Strain=StrainvaluesR3,
+                 BioRep=BioRepvalues_A) 
+colkeyR3_2 <- tibble(WellC=1:24,
+                 Strain=StrainvaluesR3,
+                 BioRep=BioRepvalues_B) 
+colkeyP1_1 <- tibble(WellC=1:24,
+                 Strain=StrainvaluesP1,
+                 BioRep=BioRepvalues_A) 
+colkeyP1_2 <- tibble(WellC=1:24,
+                 Strain=StrainvaluesP1,
+                 BioRep=BioRepvalues_B) 
+
+rowkey <- create_rowkey_4in16(TargetID=TargetIDvalues) 
+
+plateplanR3_1 <-     
+    label_plate_rowcol(create_blank_plate(WellR = LETTERS[1:16],WellC=1:24),
+                       rowkey,colkeyR3_1%>% 
+    unite(SampleID,Strain,BioRep,remove=FALSE))
+
+plateplanR3_2 <-     
+    label_plate_rowcol(create_blank_plate(WellR = LETTERS[1:16],WellC=1:24),
+                       rowkey,colkeyR3_2%>% 
+    unite(SampleID,Strain,BioRep,remove=FALSE))
+plateplanP1_1 <-     
+    label_plate_rowcol(create_blank_plate(WellR = LETTERS[1:16],WellC=1:24),
+                       rowkey,colkeyP1_1%>% 
+    unite(SampleID,Strain,BioRep,remove=FALSE))
+plateplanP1_2 <-     
+    label_plate_rowcol(create_blank_plate(WellR = LETTERS[1:16],WellC=1:24),
+                       rowkey,colkeyP1_2%>% 
+    unite(SampleID,Strain,BioRep,remove=FALSE))
+```
+
+## Display plate
+```{r display_plates,fig.height=17,fig.width=24,dependson="label_plates"}
+display_plate(plateplanR3_1 %>%
+    mutate(Strain,BioRep) )
+
+display_plate(plateplanP1_1 %>%
+    mutate(Strain,BioRep) )
+```
+
+
+## Load data and attribute sample information
+```{r load_plates,dependson="label_plates",results="show"}
+# read my plates
+platesR3_1 <- read_tsv( "data/JA_20200121-pRPS3-tRPS3mod-n1-ct.txt",skip=1) %>%
+    mutate(Well=Pos,Ct=Cp) %>%
+    left_join(plateplanR3_1)
+
+platesR3_2 <- read_tsv( "data/JA_20200204-pRPS3-tRPS3mod-n2-ct.txt",skip=1) %>%
+    mutate(Well=Pos,Ct=Cp) %>%
+    left_join(plateplanR3_2)
+
+platesP1_1 <- read_tsv( "data/JA_20200221_pPGK1-tRPS3mod-n1-ct.txt",skip=1) %>%
+    mutate(Well=Pos,Ct=Cp) %>% 
+    left_join(plateplanP1_1)
+
+platesP1_2 <- read_tsv( "data/JA_20200311-pPGK1-tRPS3mod-n2-ct.txt",skip=1) %>%
+    mutate(Well=Pos,Ct=Cp) %>%
+    left_join(plateplanP1_2)
+
+plates <- bind_rows(platesR3_1,platesR3_2,platesP1_1,platesP1_2) 
+summary(plates)
+```
+
+```{r plot_defvectors}
+pRPS3set <- factor(c("pRPS3-tRPS3_WT","pRPS3-tRPS3_mod0","pRPS3-tRPS3_modA",
+              "pRPS3-tRPS3_modB","pRPS3-tRPS3_modC","pRPS3-tRPS3_modD",
+              "pRPS3-tRPS3_modE"))
+pRPS3ATATTC<- c("pRPS3-tRPS3_WT","pRPS3-tRPS3_mod0","pRPS3-tRPS3_modB")
+pRPS3linear <- c("pRPS3-tRPS3_WT","pRPS3-tRPS3_mod0","pRPS3-tRPS3_modA",
+                 "pRPS3-tRPS3_modD","pRPS3-tRPS3_modE")
+pRPS3stability <- c("pRPS3-tRPS3_WT","pRPS3-tRPS3_mod0","pRPS3-tRPS3_modC")
+
+
+
+pPGK1set <- c("pPGK1-tRPS3_WT","pPGK1-tRPS3_mod0","pPGK1-tRPS3_modA",
+              "pPGK1-tRPS3_modB","pPGK1-tRPS3_modC","pPGK1-tRPS3_modD",
+              "pPGK1-tRPS3_modE")
+pPGK1ATATTC <- c("pPGK1-tRPS3_WT","pPGK1-tRPS3_mod0","pPGK1-tRPS3_modB")
+pPGK1linear <- c("pPGK1-tRPS3_WT","pPGK1-tRPS3_mod0","pPGK1-tRPS3_modA",
+                 "pPGK1-tRPS3_modD","pPGK1-tRPS3_modE")
+pPGK1stability <- c("pPGK1-tRPS3_WT","pPGK1-tRPS3_mod0","pPGK1-tRPS3_modC")
+
+```
+
+
+## Plot of unnormalized data
+```{r plot_unnormalized,dependson="load_plates",fig.height=12,fig.width=8}
+ggplot(data=plates %>% filter(Strain %in% pRPS3set)) +
+    geom_point(aes(x=TargetID,y=Ct,colour=BioRep),
+               position=position_jitter(width = 0.2,height=0)) +
+    labs(y="Cycle count to threshold",
+         title="All biological and technical replicates, 
+         \n unnormalized") +
+    scale_shape_manual(values=c(15:18,5:6)) + 
+    facet_grid(Strain~Type) +
+    theme(axis.text.x=element_text(angle=90,vjust=0.5),
+          panel.border=element_rect(fill = NA,linetype=1,
+                                    colour = "grey50",size=0.5))
+
+ggplot(data=plates %>% filter(Strain %in% pPGK1set)) +
+    geom_point(aes(x=TargetID,y=Ct,colour=BioRep),
+               position=position_jitter(width = 0.2,height=0)) +
+    labs(y="Cycle count to threshold",
+         title="All biological and technical replicates, 
+         \n unnormalized") +
+    scale_shape_manual(values=c(15:18,5:6)) + 
+    facet_grid(Strain~Type) +
+    theme(axis.text.x=element_text(angle=90,vjust=0.5),
+          panel.border=element_rect(fill = NA,linetype=1,
+                                    colour = "grey50",size=0.5))
+```
+
+
+```{r plot_unnormalizedpot,dependson="load_plates",fig.height=4,fig.width=8}
+ggplot(data=plates %>% filter(Strain %in% c("POT1-ccdB"))) +
+    geom_point(aes(x=TargetID,y=Ct,colour=BioRep),
+               position=position_jitter(width = 0.2,height=0)) +
+    labs(y="Cycle count to threshold",
+         title="All biological and technical replicates, 
+         \n unnormalized") +
+    scale_shape_manual(values=c(15:18,5:6)) + 
+    facet_grid(Strain~Type) +
+    theme(axis.text.x=element_text(angle=90,vjust=0.5),
+          panel.border=element_rect(fill = NA,linetype=1,
+                                    colour = "grey50",size=0.5))
+```
+
+
+## Further analysis of unnormalised data (pPGK1 strains only (WT, mod0, modA, modB) - looking into the Bioreps and Techreps)
+
+A comparison between unnormalised ct values between pPGK1 strains was carried out to identify if the high  Ct values for pPGK1-tRPS3_mod0 had occurred in one biorep and if it is present in all techreps for this one sample.
+
+Conclusion - all ct values in the +RT column higher than 20 were only present in the pPGK1-tRPS3_WT Strain. In particular, the pPGK1-tRPS3_WT Biorep 2 sample. High Ct values were observed for all 3 technical replicates for all 4 primers (TargetID).
+
+**Take note, pPGK1-tRPS3_WT Biorep 1, with PGK1-ORF seems to have one techrep (1) with a lower Ct value. pPGK1-tRPS3_WT Biorep 1, with RPS3-ORF seems to have one techrep (1) with a higher Ct value. 
+```{r plot_unnormalized_pPGK1analysis,dependson="load_plates",fig.height=8,fig.width=8}
+ggplot(data=plates %>% filter(Strain %in% c("pPGK1-tRPS3_WT","pPGK1-tRPS3_mod0","pPGK1-tRPS3_modA","pPGK1-tRPS3_modB"))) +
+    geom_point(aes(x=TargetID,y=Ct,colour=BioRep,shape=TechRep),
+               position=position_jitter(width = 0.2,height=0)) +
+    labs(y="Cycle count to threshold",
+         title="All reps, unnormalized, 
+         \n Analysis of pPGK1 data points") +
+    scale_shape_manual(values=c(15:18,5:6)) + 
+    facet_grid(Strain~Type) +
+    theme(axis.text.x=element_text(angle=90,vjust=0.5),
+          panel.border=element_rect(fill = NA,linetype=1,
+                                    colour = "grey50",size=0.5))
+
+pPGK1data<- (data=plates %>% filter(SampleID %in% c("pPGK1-tRPS3_WT_BioRep1","pPGK1-tRPS3_WT_BioRep2","pPGK1-tRPS3_WT_BioRep3")))
+pPGK1data
+
+```
+
+```{r plot_unnormalized_BiorepWTanalysis,dependson="load_plates",fig.height=4,fig.width=8}
+ggplot(data=plates %>% filter(SampleID %in% c("pPGK1-tRPS3_WT_BioRep1","pPGK1-tRPS3_WT_BioRep2","pPGK1-tRPS3_WT_BioRep3","pPGK1-tRPS3_WT_BioRep4","pPGK1-tRPS3_WT_BioRep5","pPGK1-tRPS3_WT_BioRep6"))) +
+    geom_point(aes(x=TargetID,y=Ct,colour=BioRep,shape=TechRep),
+               position=position_jitter(width = 0.2,height=0)) +
+    labs(y="Cycle count to threshold",
+         title="All reps, unnormalized, 
+         \n pPGK1-tRPS3_WT_BioRep comparison") +
+    scale_shape_manual(values=c(15:18,5:6)) + 
+    facet_grid(Strain~Type) +
+    theme(axis.text.x=element_text(angle=90,vjust=0.5),
+          panel.border=element_rect(fill = NA,linetype=1,
+                                    colour = "grey50",size=0.5))
+```
+
+## Normalisation of mCherry Ct values against PGK1-ORF Ct values
+Here, we are excluding pPGK1-tRPS3_WT_BioRep2 data because it seemed to show a problem in the sample preparation (high Ct value for all technical replicates for this one biological replicate)
+```{r normalize_counts,dependson="load_plates"}
+platesnorm <- plates  %>% filter(!SampleID %in% c("pPGK1-tRPS3_WT_BioRep2")) %>%
+    filter(Type=="+RT") %>%
+    normalizeqPCR(normTargetIDs = "PGK1-ORF") 
+    #%>%filter(TargetID=="mCh-7")
+
+platesmed <- platesnorm %>% filter(!SampleID %in% c("pPGK1-tRPS3_WT_BioRep2")) %>%
+      group_by(Strain,TargetID,BioRep) %>%
+     # filter(TargetID=="mCh-7")%>%
+      summarize(Ct=median(Value.norm,na.rm=TRUE),
+              Abund=median(Value.normexp,na.rm=TRUE))
+      filter(platesmed,TargetID=="PGK1-ORF")
+```
+
+## Plotting all the normalised (to PGK1-ORF) Ct values for all biological replicates and technical replicates for each strain
+```{r plot_diffnormalization,dependson="normalize_counts",fig.height=5,fig.width=6}
+platesnorm
+
+
+ggplot(data=platesnorm %>% filter (TargetID=="mCh-7")) +
+    geom_point(aes(x=Value.norm,y=Strain, colour=BioRep, shape=TechRep),
+               position=position_jitter(width = 0.2,height=0)) +
+    labs(x="Ct relative to PGK1-ORF",
+    title="Normalised mCherry Ct values  
+         \n relative to PGK1-ORF") +
+    scale_shape_manual(values=c(15:18,5:6)) + 
+    xlim(-5, 15)+
+    facet_grid(TargetID~.) +
+    theme(axis.text.x=element_text(angle=90,vjust=0.5),
+          panel.grid.major = element_line(colour = "grey50",size=0.125))
+
+
+ggplot(data=platesnorm %>% filter (TargetID=="RPS3-ORF")) +
+    geom_point(aes(x=Value.norm,y=Strain, colour=BioRep, shape=TechRep),
+               position=position_jitter(width = 0.2,height=0)) +
+    labs(x="Ct relative to PGK1-ORF",
+    title="Normalised RPS3-ORF Ct values  
+         \n relative to PGK1-ORF") +
+    scale_shape_manual(values=c(15:18,5:6)) + 
+    xlim(-5, 15)+
+    facet_grid(TargetID~.) +
+    theme(axis.text.x=element_text(angle=90,vjust=0.5),
+          panel.grid.major = element_line(colour = "grey50",size=0.125))
+
+ggplot(data=platesnorm %>% filter (TargetID=="URA3-ORF")) +
+    geom_point(aes(x=Value.norm,y=Strain, colour=BioRep, shape=TechRep),
+               position=position_jitter(width = 0.2,height=0)) +
+    labs(x="Ct relative to PGK1-ORF",
+    title="Normalised URA3-ORF Ct values  
+         \n relative to PGK1-ORF") +
+    scale_shape_manual(values=c(15:18,5:6)) + 
+    xlim(-5, 15)+
+    facet_grid(TargetID~.) +
+    theme(axis.text.x=element_text(angle=90,vjust=0.5),
+          panel.grid.major = element_line(colour = "grey50",size=0.125))
+```
+
+
+## Plotting the mCherry mRNA detected in each strain (for biological replicates only)
+```{r plot_pRPS3_mChnormalized,dependson="normalize_counts",fig.height=3,fig.width=6}
+
+platesmed$Strain <- factor(platesmed$Strain)
+
+ggplot(data=platesmed %>% filter(Strain %in% pRPS3set) %>% 
+         filter (TargetID=="mCh-7")) +
+    geom_point(aes(x=Abund,y=Strain,colour=BioRep),
+               position=position_jitter(width = 0.2,height=0)) +
+      labs(x="Abund",
+         title="All normalised mCherry to PGK1-ORF 
+         \n of pRPS3-mCherry strains") +
+    scale_shape_manual(values=c(15:18,5:6)) + 
+    scale_x_log10nice("Relative mRNA detected") + 
+    xlim(0.001, 8)+
+    theme(axis.text.x=element_text(angle=90,vjust=0.5),
+         panel.grid.major = element_line(colour = "grey50",size=0.125))
+
+
+platesmed_pRPS3ATATTC <- platesmed %>% filter(Strain %in% pRPS3ATATTC) %>% filter (TargetID=="mCh-7")
+platesmed_pRPS3ATATTC$Strain <- factor(platesmed_pRPS3ATATTC$Strain,
+                                       levels=c("pRPS3-tRPS3_modB","pRPS3-tRPS3_mod0", "pRPS3-tRPS3_WT"))
+
+ggplot(data=platesmed_pRPS3ATATTC) +
+    geom_point(aes(x=Abund,y=Strain,colour=BioRep),
+               position=position_jitter(width = 0.2,height=0)) +
+    labs(title="Normalised mCherry to PGK1-ORF of 
+         \n pRPS3-mCherry ATATTC construct") +
+    scale_shape_manual(values=c(15:18,5:6)) + 
+    scale_x_log10nice("Relative mRNA detected") + 
+    xlim(0.001, 8)+
+    theme(axis.text.x=element_text(angle=90,vjust=0.5),
+         panel.grid.major = element_line(colour = "grey50",size=0.125))
+
+
+
+
+platesmed_pRPS3linear <- platesmed %>% filter(Strain %in% pRPS3linear) %>% filter (TargetID=="mCh-7")
+platesmed_pRPS3linear$Strain <- factor(platesmed_pRPS3linear$Strain,
+                                       levels=c("pRPS3-tRPS3_modE","pRPS3-tRPS3_modD","pRPS3-tRPS3_modA",
+                                                "pRPS3-tRPS3_mod0", "pRPS3-tRPS3_WT"))
+ggplot(data=platesmed_pRPS3linear) +
+    geom_point(aes(x=Abund,y=Strain,colour=BioRep),
+               position=position_jitter(width = 0.2,height=0)) +
+      labs(x="Abund",
+         title="Normalised mCherry to PGK1-ORF of 
+         \n pRPS3-mCherry linear combination of decay motif constructs") +
+    scale_shape_manual(values=c(15:18,5:6)) + 
+    scale_x_log10nice("Relative mRNA detected") + 
+    xlim(0.001, 8)+
+    theme(axis.text.x=element_text(angle=90,vjust=0.5),
+         panel.grid.major = element_line(colour = "grey50",size=0.125))
+
+
+
+platesmed_pRPS3stability <- platesmed %>% filter(Strain %in% pRPS3stability) %>% filter (TargetID=="mCh-7")
+platesmed_pRPS3stability$Strain <- factor(platesmed_pRPS3stability$Strain,
+                                       levels=c("pRPS3-tRPS3_modC","pRPS3-tRPS3_mod0", "pRPS3-tRPS3_WT"))
+ggplot(data=platesmed_pRPS3stability) +
+    geom_point(aes(x=Abund,y=Strain,colour=BioRep),
+               position=position_jitter(width = 0.2,height=0)) +
+      labs(x="Abund",
+         title="Normalised mCherry to PGK1-ORF of 
+         \n pRPS3-mCherry stability motif construct") +
+    scale_shape_manual(values=c(15:18,5:6)) + 
+    scale_x_log10nice("Relative mRNA detected") + 
+    xlim(0.001, 8)+
+    theme(axis.text.x=element_text(angle=90,vjust=0.5),
+         panel.grid.major = element_line(colour = "grey50",size=0.125))
+```
+
+
+
+```{r plot_pPGK1_mChnormalized,dependson="normalize_counts",fig.height=3,fig.width=6}
+
+ggplot(data=platesmed %>% filter(Strain %in% pPGK1set) %>% 
+         filter (TargetID=="mCh-7")) +
+    geom_point(aes(x=Abund,y=Strain,colour=BioRep),
+               position=position_jitter(width = 0.2,height=0)) +
+      labs(x="Abund",
+         title="Normalised mCherry to PGK1-ORF of 
+         \n pPGK1-mCherry strains") +
+    scale_shape_manual(values=c(15:18,5:6)) + 
+    scale_x_log10nice("Relative mRNA detected") + 
+    xlim(-5, 15)+
+    theme(axis.text.x=element_text(angle=90,vjust=0.5),
+         panel.grid.major = element_line(colour = "grey50",size=0.125))
+
+
+platesmed_pPGK1ATATTC <- platesmed %>% filter(Strain %in% pPGK1ATATTC) %>% filter (TargetID=="mCh-7")
+platesmed_pPGK1ATATTC$Strain <- factor(platesmed_pPGK1ATATTC$Strain,
+                                       levels=c("pPGK1-tRPS3_modB","pPGK1-tRPS3_mod0", "pPGK1-tRPS3_WT"))
+ggplot(data=platesmed_pPGK1ATATTC) +
+    geom_point(aes(x=Abund,y=Strain,colour=BioRep),
+               position=position_jitter(width = 0.2,height=0)) +
+      labs(x="Abund",
+         title="Normalised mCherry to PGK1-ORF of 
+         \n pPGK1-mCherry ATATTC construct") +
+    scale_shape_manual(values=c(15:18,5:6)) + 
+    scale_x_log10nice("Relative mRNA detected") + 
+    xlim(-5, 15)+
+    theme(axis.text.x=element_text(angle=90,vjust=0.5),
+         panel.grid.major = element_line(colour = "grey50",size=0.125))
+
+
+
+platesmed_pPGK1linear <- platesmed %>% filter(Strain %in% pPGK1linear) %>% filter (TargetID=="mCh-7")
+platesmed_pPGK1linear$Strain <- factor(platesmed_pPGK1linear$Strain,
+                                       levels=c("pPGK1-tRPS3_modE","pPGK1-tRPS3_modD","pPGK1-tRPS3_modA",
+                                                "pPGK1-tRPS3_mod0", "pPGK1-tRPS3_WT"))
+ggplot(data=platesmed_pPGK1linear) +
+    geom_point(aes(x=Abund,y=Strain,colour=BioRep),
+               position=position_jitter(width = 0.2,height=0)) +
+      labs(x="Abund",
+         title="Normalised mCherry to PGK1-ORF of 
+         \n pPGK1-mCherry linear combination of decay motif constructs") +
+    scale_shape_manual(values=c(15:18,5:6)) + 
+    scale_x_log10nice("Relative mRNA detected") + 
+    xlim(-5, 15)+
+    theme(axis.text.x=element_text(angle=90,vjust=0.5),
+         panel.grid.major = element_line(colour = "grey50",size=0.125))
+
+
+
+
+platesmed_pPGK1stability <- platesmed %>% filter(Strain %in% pPGK1stability) %>% filter (TargetID=="mCh-7")
+platesmed_pPGK1stability$Strain <- factor(platesmed_pPGK1stability$Strain,
+                                       levels=c("pPGK1-tRPS3_modC","pPGK1-tRPS3_mod0", "pPGK1-tRPS3_WT"))
+ggplot(data=platesmed_pPGK1stability) +
+    geom_point(aes(x=Abund,y=Strain,colour=BioRep),
+               position=position_jitter(width = 0.2,height=0)) +
+      labs(x="Abund",
+         title="Normalised mCherry to PGK1-ORF of 
+         \n pPGK1-mCherry stability motif construct") +
+    scale_shape_manual(values=c(15:18,5:6)) + 
+    scale_x_log10nice("Relative mRNA detected") + 
+    xlim(-5, 15)+
+    theme(axis.text.x=element_text(angle=90,vjust=0.5),
+         panel.grid.major = element_line(colour = "grey50",size=0.125))
+```
+
